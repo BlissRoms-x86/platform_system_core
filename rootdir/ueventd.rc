@@ -1,4 +1,4 @@
-firmware_directories /system/lib/firmware
+firmware_directories /vendor/firmware /system/lib/firmware
 modalias_handling enabled
 uevent_socket_rcvbuf_size 16M
 

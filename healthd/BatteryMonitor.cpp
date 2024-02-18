@@ -44,8 +44,6 @@
 
 #define POWER_SUPPLY_SUBSYSTEM "power_supply"
 #define POWER_SUPPLY_SYSFS_PATH "/sys/class/" POWER_SUPPLY_SUBSYSTEM
-#define SYSFS_BATTERY_CURRENT "/sys/class/power_supply/battery/current_now"
-#define SYSFS_BATTERY_VOLTAGE "/sys/class/power_supply/battery/voltage_now"
 #define FAKE_BATTERY_CAPACITY 42
 #define FAKE_BATTERY_TEMPERATURE 424
 #define MILLION 1.0e6
@@ -361,12 +359,20 @@ void BatteryMonitor::updateValues(void) {
                              mChargerNames[i].string());
             }
 
-            int ChargingCurrent =
-                  (access(SYSFS_BATTERY_CURRENT, R_OK) == 0) ? abs(getIntField(String8(SYSFS_BATTERY_CURRENT))) : 0;
-
+            path.clear();
+            path.appendFormat("%s/%s/voltage_now", POWER_SUPPLY_SYSFS_PATH,
+                              mChargerNames[i].string());
             int ChargingVoltage =
-                  (access(SYSFS_BATTERY_VOLTAGE, R_OK) == 0) ? getIntField(String8(SYSFS_BATTERY_VOLTAGE)) :
+                  (access(path.string(), R_OK) == 0) ? getIntField(String8(path.string())) :
                    DEFAULT_VBUS_VOLTAGE;
+
+            int ChargingCurrent = 0;
+            path.clear();
+            path.appendFormat("%s/%s/current_now", POWER_SUPPLY_SYSFS_PATH,
+                              mChargerNames[i].string());
+            if (access(path, R_OK) == 0) {
+                ChargingCurrent = abs(getIntField(String8(path.string())));
+            }
 
             double power = ((double)ChargingCurrent / MILLION) *
                            ((double)ChargingVoltage / MILLION);

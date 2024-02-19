@@ -749,12 +749,19 @@ void BatteryMonitor::init(struct healthd_config *hc) {
                         mHealthdConfig->batteryChargeCounterPath = path;
                     } else {
                         path.clear();
-                        path.appendFormat("%s/%s/energy_now", POWER_SUPPLY_SYSFS_PATH, name);
+                        path.appendFormat("%s/%s/charge_now",
+                                        POWER_SUPPLY_SYSFS_PATH, name);
                         if (access(path, R_OK) == 0) {
                             mHealthdConfig->batteryChargeCounterPath = path;
-                            temp = (getIntField(path) / 1000) / vol_min;
-                            path_wh = round(temp) * 1000;
-                            mBatteryEnergyCounter = path_wh;
+                        } else {
+                            path.clear();
+                            path.appendFormat("%s/%s/energy_now", POWER_SUPPLY_SYSFS_PATH, name);
+                            if (access(path, R_OK) == 0) {
+                                mHealthdConfig->batteryChargeCounterPath = path;
+                                temp = (getIntField(path) / 1000) / vol_min;
+                                path_wh = round(temp) * 1000;
+                                mBatteryEnergyCounter = path_wh;
+                            }
                         }
                     }
                 }

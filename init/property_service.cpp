@@ -1255,7 +1255,11 @@ static void ExportKernelBootProps() {
     const char *hardware = prop_map[4].src_prop;
     if (GetProperty(hardware, UNSET).empty()) {
         char line[PROP_NAME_MAX + PROP_VALUE_MAX + 2], value[PROP_VALUE_MAX];
+#ifndef RECOVERY
         auto f = fopen("/system/build.prop", "r");
+#else
+        auto f = fopen("/prop.default", "r");
+#endif  // RECOVERY
         while (fgets(line, sizeof(line), f) == line) {
             if (sscanf(line, "ro.product.system.name=%s", value) > 0) {
                 InitPropertySet(hardware, value);

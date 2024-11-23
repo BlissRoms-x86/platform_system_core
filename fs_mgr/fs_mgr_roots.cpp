@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include "android-base/properties.h"
+#include "android-base/strings.h" 
 #include "fs_mgr/roots.h"
 
 #include <sys/mount.h>
@@ -28,6 +30,10 @@
 
 namespace android {
 namespace fs_mgr {
+
+#if defined(__ANDROID_RECOVERY__)
+static constexpr const char* kSupportedFsProp = "ro.recovery.supported_fs";
+#endif
 
 static constexpr const char* kSystemRoot = "/system";
 
@@ -113,8 +119,18 @@ bool EnsurePathMounted(Fstab* fstab, const std::string& path, const std::string&
 
     static const std::vector<std::string> supported_fs{"ext4", "squashfs", "vfat", "f2fs", "none"};
     if (std::find(supported_fs.begin(), supported_fs.end(), rec->fs_type) == supported_fs.end()) {
+#if defined(__ANDROID_RECOVERY__)
+        auto supported_fs_from_prop =
+                android::base::Split(android::base::GetProperty(kSupportedFsProp, ""), ",");
+        if (std::find(supported_fs_from_prop.begin(), supported_fs_from_prop.end(), rec->fs_type) ==
+            supported_fs_from_prop.end()) {
+            LERROR << "unknown fs_type \"" << rec->fs_type << "\" for " << mount_point;
+            return false;
+        }
+#else
         LERROR << "unknown fs_type \"" << rec->fs_type << "\" for " << mount_point;
         return false;
+#endif
     }
 
     int result = fs_mgr_do_mount_one(*rec, mount_point);

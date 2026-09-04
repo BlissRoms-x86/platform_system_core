@@ -93,9 +93,10 @@ BatteryMonitor::BatteryMonitor()
       mBatteryDevicePresent(false),
       mBatteryFixedCapacity(0),
       mBatteryFixedTemperature(0),
-      mBatteryFullEnergy(0),
-      mBatteryEnergyCounter(0),
-      mBatteryFullEnergyDesignCapacity(0),
+      mBatteryVoltageMinDesign(0.0),
+      mChargeCounterIsEnergy(false),
+      mFullChargeIsEnergy(false),
+      mFullChargeDesignIsEnergy(false),
       mHealthInfo(std::make_unique<HealthInfo_2_1>()) {
     initHealthInfo(mHealthInfo.get());
 }
@@ -265,18 +266,24 @@ void BatteryMonitor::updateValues(void) {
     if (!mHealthdConfig->batteryCurrentNowPath.isEmpty())
         props.batteryCurrent = getIntField(mHealthdConfig->batteryCurrentNowPath);
 
-    if (!mHealthdConfig->batteryFullChargePath.isEmpty())
-        props.batteryFullCharge = mBatteryFullEnergy
-                                    ? mBatteryFullEnergy
-                                    : getIntField(mHealthdConfig->batteryFullChargePath);
+    if (!mHealthdConfig->batteryFullChargePath.isEmpty()) {
+        int val = getIntField(mHealthdConfig->batteryFullChargePath);
+        if (mFullChargeIsEnergy && mBatteryVoltageMinDesign > 0) {
+            val = round(((float)val / 1000.0) / mBatteryVoltageMinDesign) * 1000;
+        }
+        props.batteryFullCharge = val;
+    }
 
     if (!mHealthdConfig->batteryCycleCountPath.isEmpty())
         props.batteryCycleCount = getIntField(mHealthdConfig->batteryCycleCountPath);
 
-    if (!mHealthdConfig->batteryChargeCounterPath.isEmpty())
-        props.batteryChargeCounter = mBatteryEnergyCounter
-                                                    ? mBatteryEnergyCounter
-                                                    : getIntField(mHealthdConfig->batteryChargeCounterPath);
+    if (!mHealthdConfig->batteryChargeCounterPath.isEmpty()) {
+        int val = getIntField(mHealthdConfig->batteryChargeCounterPath);
+        if (mChargeCounterIsEnergy && mBatteryVoltageMinDesign > 0) {
+            val = round(((float)val / 1000.0) / mBatteryVoltageMinDesign) * 1000;
+        }
+        props.batteryChargeCounter = val;
+    }
 
     if (!mHealthdConfig->batteryCurrentAvgPath.isEmpty())
         mHealthInfo->legacy.batteryCurrentAverage =
@@ -287,14 +294,12 @@ void BatteryMonitor::updateValues(void) {
                 getIntField(mHealthdConfig->batteryChargeTimeToFullNowPath);
 
     if (!mHealthdConfig->batteryFullChargeDesignCapacityUahPath.isEmpty()) {
-        mHealthInfo->batteryFullChargeDesignCapacityUah = mBatteryFullEnergyDesignCapacity
-                                                            ? mBatteryFullEnergyDesignCapacity
-                                                            : getIntField(mHealthdConfig->batteryFullChargeDesignCapacityUahPath);
-        std::string s = std::to_string((mHealthInfo->batteryFullChargeDesignCapacityUah) / 1000);
-        if (!(property_get_int32("ro.bliss.battery_capacity", 0) == 
-        (mHealthInfo->batteryFullChargeDesignCapacityUah / 1000))) {
-            property_set("ro.bliss.battery_capacity", s.c_str());}
-}
+        int val = getIntField(mHealthdConfig->batteryFullChargeDesignCapacityUahPath);
+        if (mFullChargeDesignIsEnergy && mBatteryVoltageMinDesign > 0) {
+            val = round(((float)val / 1000.0) / mBatteryVoltageMinDesign) * 1000;
+        }
+        mHealthInfo->batteryFullChargeDesignCapacityUah = val;
+    }
 
     props.batteryTemperature = mBatteryFixedTemperature ?
         mBatteryFixedTemperature :
@@ -373,20 +378,12 @@ void BatteryMonitor::updateValues(void) {
                              mChargerNames[i].string());
             }
 
-            path.clear();
-            path.appendFormat("%s/%s/voltage_now", POWER_SUPPLY_SYSFS_PATH,
-                              mChargerNames[i].string());
             int ChargingVoltage =
-                  (access(path.string(), R_OK) == 0) ? getIntField(String8(path.string())) :
+                  (!mHealthdConfig->batteryVoltagePath.isEmpty()) ? getIntField(mHealthdConfig->batteryVoltagePath) :
                    DEFAULT_VBUS_VOLTAGE;
 
-            int ChargingCurrent = 0;
-            path.clear();
-            path.appendFormat("%s/%s/current_now", POWER_SUPPLY_SYSFS_PATH,
-                              mChargerNames[i].string());
-            if (access(path, R_OK) == 0) {
-                ChargingCurrent = abs(getIntField(String8(path.string())));
-            }
+            int ChargingCurrent =
+                  (!mHealthdConfig->batteryCurrentNowPath.isEmpty()) ? abs(getIntField(mHealthdConfig->batteryCurrentNowPath)) : 0;
 
             double power = ((double)ChargingCurrent / MILLION) *
                            ((double)ChargingVoltage / MILLION);
@@ -465,9 +462,11 @@ status_t BatteryMonitor::getProperty(int id, struct BatteryProperty *val) {
     switch(id) {
     case BATTERY_PROP_CHARGE_COUNTER:
         if (!mHealthdConfig->batteryChargeCounterPath.isEmpty()) {
-            val->valueInt64 = mBatteryEnergyCounter
-                                    ? mBatteryEnergyCounter
-                                    : getIntField(mHealthdConfig->batteryChargeCounterPath);
+            int val_cc = getIntField(mHealthdConfig->batteryChargeCounterPath);
+            if (mChargeCounterIsEnergy && mBatteryVoltageMinDesign > 0) {
+                val_cc = round(((float)val_cc / 1000.0) / mBatteryVoltageMinDesign) * 1000;
+            }
+            val->valueInt64 = val_cc;
             ret = OK;
         } else {
             ret = NAME_NOT_FOUND;
@@ -555,9 +554,10 @@ void BatteryMonitor::dumpState(int fd) {
     }
 
     if (!mHealthdConfig->batteryChargeCounterPath.isEmpty()) {
-        v =  mBatteryEnergyCounter
-                ? mBatteryEnergyCounter
-                : getIntField(mHealthdConfig->batteryChargeCounterPath);
+        v = getIntField(mHealthdConfig->batteryChargeCounterPath);
+        if (mChargeCounterIsEnergy && mBatteryVoltageMinDesign > 0) {
+            v = round(((float)v / 1000.0) / mBatteryVoltageMinDesign) * 1000;
+        }
         snprintf(vs, sizeof(vs), "charge counter: %d\n", v);
         write(fd, vs, strlen(vs));
     }
@@ -581,9 +581,6 @@ void BatteryMonitor::dumpState(int fd) {
 void BatteryMonitor::init(struct healthd_config *hc) {
     String8 path;
     String8 path_vol_min;
-    float vol_min;
-    int path_wh;
-    float temp;
     char pval[PROPERTY_VALUE_MAX];
 
     mHealthdConfig = hc;
@@ -631,7 +628,7 @@ void BatteryMonitor::init(struct healthd_config *hc) {
                 path_vol_min.appendFormat("%s/%s/voltage_min_design", POWER_SUPPLY_SYSFS_PATH,
                                     name);
                 if (access(path_vol_min, R_OK) == 0)
-                    vol_min = getIntField(path_vol_min) / MILLION;
+                    mBatteryVoltageMinDesign = getIntField(path_vol_min) / MILLION;
 
                 if (mHealthdConfig->batteryStatusPath.isEmpty()) {
                     path.clear();
@@ -685,9 +682,7 @@ void BatteryMonitor::init(struct healthd_config *hc) {
                         path.appendFormat("%s/%s/energy_full", POWER_SUPPLY_SYSFS_PATH, name);
                         if (access(path, R_OK) == 0) {
                             mHealthdConfig->batteryFullChargePath = path;
-                            temp = (getIntField(path) / 1000) / vol_min;
-                            path_wh = round(temp) * 1000;
-                            mBatteryFullEnergy = path_wh;
+                            mFullChargeIsEnergy = true;
                         }
                     }
                 }
@@ -731,9 +726,7 @@ void BatteryMonitor::init(struct healthd_config *hc) {
                         path.appendFormat("%s/%s/energy_full_design", POWER_SUPPLY_SYSFS_PATH, name);
                         if (access(path, R_OK) == 0) {
                             mHealthdConfig->batteryFullChargeDesignCapacityUahPath = path;
-                            temp = (getIntField(path) / 1000) / vol_min;
-                            path_wh = round(temp) * 1000;
-                            mBatteryFullEnergyDesignCapacity = path_wh;
+                            mFullChargeDesignIsEnergy = true;
                         }
                     }
                 }
@@ -763,9 +756,7 @@ void BatteryMonitor::init(struct healthd_config *hc) {
                             path.appendFormat("%s/%s/energy_now", POWER_SUPPLY_SYSFS_PATH, name);
                             if (access(path, R_OK) == 0) {
                                 mHealthdConfig->batteryChargeCounterPath = path;
-                                temp = (getIntField(path) / 1000) / vol_min;
-                                path_wh = round(temp) * 1000;
-                                mBatteryEnergyCounter = path_wh;
+                                mChargeCounterIsEnergy = true;
                             }
                         }
                     }

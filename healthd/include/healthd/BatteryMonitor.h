@@ -75,9 +75,10 @@ class BatteryMonitor {
     bool mBatteryDevicePresent;
     int mBatteryFixedCapacity;
     int mBatteryFixedTemperature;
-    int mBatteryFullEnergy;
-    int mBatteryEnergyCounter;
-    int mBatteryFullEnergyDesignCapacity;
+    float mBatteryVoltageMinDesign;
+    bool mChargeCounterIsEnergy;
+    bool mFullChargeIsEnergy;
+    bool mFullChargeDesignIsEnergy;
     std::unique_ptr<android::hardware::health::V2_1::HealthInfo> mHealthInfo;
 
     int readFromFile(const String8& path, std::string* buf);
